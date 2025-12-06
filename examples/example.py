@@ -1,3 +1,12 @@
+"""
+[0] 快速示例 - 推荐系统基础用法
+
+这是一个快速入门示例，展示如何使用矩阵分解模型进行推荐。
+适合快速了解基本用法，不需要深入学习。
+
+学习顺序：这是可选文件，可以在任何时间查看作为快速参考。
+"""
+
 from matrix_factorization import BaselineModel, KernelMF, train_update_test_split
 
 import pandas as pd
