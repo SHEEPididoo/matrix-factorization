@@ -380,6 +380,100 @@ pip install -r requirements.txt
 
 ---
 
+## 🧩 Week4–Week8 项目模板（课程大作业）
+
+为了让学员在 Week3 的代码基础上做一个“可复现、可对比、可交互”的完整推荐系统项目，本仓库提供了项目模板：
+
+- **入口**：`project_template/README.md`
+- **周计划**：`project_template/docs/WEEK_PLAN.md`
+- **每周 Check-in 模板**：`project_template/docs/CHECKINS.md`
+- **评分 Rubric**：`project_template/docs/RUBRIC.md`
+- **流水线脚本**：`project_template/pipeline/`
+- **Demo API（FastAPI）**：`project_template/app/api.py`
+
+> 注：LLM/Embedding 与 Demo 依赖放在 `project_template/requirements-optional.txt`，避免影响 Week3 的基础环境。
+
+### Demo 快速跑通（推荐课堂用法）
+
+#### 0) 安装可选依赖（Embedding / Demo / UI）
+
+```bash
+pip install -r project_template/requirements-optional.txt
+```
+
+#### 1) 一键生成示例数据（MovieLens 小样本，可选但推荐）
+
+```bash
+python -m project_template.pipeline.download_movielens_small --sample-users 500 --min-interactions 10
+```
+
+会生成：
+- `project_template/data/ratings.parquet`
+- `project_template/data/items.parquet`
+
+> 如果你使用自选数据集：请确保生成同名 parquet，并满足 `project_template/README.md` 里的数据契约（`ratings: user_id,item_id,rating`；`items: item_id,text`）。
+
+#### 2) 生成文本 Embedding（缓存到 features/）
+
+```bash
+python -m project_template.pipeline.build_item_embeddings
+```
+
+产物：
+- `project_template/features/items_emb.parquet`
+
+#### 3) 训练一个模型（保存到 artifacts/）
+
+```bash
+python -m project_template.pipeline.train --model kernel_mf --kernel linear
+```
+
+可选模型：
+- `--model baseline`
+- `--model kernel_mf`（可配 `--kernel linear|sigmoid|rbf`）
+- `--model item_cf`
+- `--model user_cf`
+
+产物：
+- `project_template/artifacts/model.pkl`
+
+#### 4) 导出 Demo 索引（embedding 检索用）
+
+```bash
+python -m project_template.pipeline.export_artifacts
+```
+
+产物：
+- `project_template/artifacts/item_index.pkl`
+
+#### 5) 离线评估（简化版 Top-K）
+
+```bash
+python -m project_template.pipeline.evaluate --k 10 --positive-threshold 4.0
+```
+
+输出：
+- `Precision@K / Recall@K / NDCG@K`
+
+#### 6A) 启动 Demo API（FastAPI）
+
+```bash
+python -m project_template.app.api
+```
+
+打开 Swagger：
+- `http://127.0.0.1:8000/docs`
+
+#### 6B) 启动课堂展示 UI（Streamlit，更推荐）
+
+```bash
+streamlit run project_template/app/streamlit_app.py
+```
+
+你可以在 UI 里：
+- 输入自由文本 query（如“轻松搞笑、适合周末的电影”）
+- （可选）输入 `user_id` 做个性化混合排序（alpha 可调）
+
 ### 快速参考
 
 #### 📘 0. 快速示例（可选）
