@@ -384,7 +384,7 @@ pip install -r requirements.txt
 
 为了让学员在 Week3 的代码基础上做一个“可复现、可对比、可交互”的完整推荐系统项目，本仓库提供了项目模板：
 
-- **入口**：`project_template/README.md`
+- **模板目录**：`project_template/`
 - **周计划**：`project_template/docs/WEEK_PLAN.md`
 - **每周 Check-in 模板**：`project_template/docs/CHECKINS.md`
 - **评分 Rubric**：`project_template/docs/RUBRIC.md`
@@ -392,6 +392,40 @@ pip install -r requirements.txt
 - **Demo API（FastAPI）**：`project_template/app/api.py`
 
 > 注：LLM/Embedding 与 Demo 依赖放在 `project_template/requirements-optional.txt`，避免影响 Week3 的基础环境。
+
+### 模板目录结构（建议保持不变）
+
+```
+project_template/
+  data/                 # 原始/清洗后的数据（建议用 .parquet）
+  features/             # 缓存的特征（embedding、标签、统计特征等）
+  artifacts/            # 训练好的模型与索引（可直接用于 demo）
+  pipeline/             # 数据/特征/训练/评估脚本
+  app/                  # Demo（API 或 UI）
+  docs/                 # 周计划、check-in、rubric、说明文档
+```
+
+### 数据契约（所有脚本默认遵守）
+
+#### 1) 交互表（ratings）
+
+文件：`project_template/data/ratings.parquet`
+
+必须包含列：
+- `user_id`
+- `item_id`
+- `rating`
+
+可选列：
+- `timestamp`
+
+#### 2) 物品表（items）
+
+文件：`project_template/data/items.parquet`
+
+必须包含列：
+- `item_id`
+- `text`（用于 embedding/LLM 的文本字段：标题+简介/标签/评论拼接均可）
 
 ### Demo 快速跑通（推荐课堂用法）
 
@@ -411,7 +445,7 @@ python -m project_template.pipeline.download_movielens_small --sample-users 500 
 - `project_template/data/ratings.parquet`
 - `project_template/data/items.parquet`
 
-> 如果你使用自选数据集：请确保生成同名 parquet，并满足 `project_template/README.md` 里的数据契约（`ratings: user_id,item_id,rating`；`items: item_id,text`）。
+> 如果你使用自选数据集：请确保生成同名 parquet，并满足本节「数据契约」（`ratings: user_id,item_id,rating`；`items: item_id,text`）。
 
 #### 2) 生成文本 Embedding（缓存到 features/）
 
@@ -471,8 +505,91 @@ streamlit run project_template/app/streamlit_app.py
 ```
 
 你可以在 UI 里：
-- 输入自由文本 query（如“轻松搞笑、适合周末的电影”）
+- 输入自由文本 query（如“轻松搞笑的游戏”）
 - （可选）输入 `user_id` 做个性化混合排序（alpha 可调）
+
+示例（本仓库当前 Steam 小样本数据中存在的 `user_id`，可直接复制到 UI）：
+- `101142088`
+- `101596530`
+- `101878879`
+- `102270213`
+- `102295765`
+
+如果你用的是自己的数据集：用下面命令查看一些可用的 `user_id`：
+
+```bash
+python -c "import pandas as pd; r=pd.read_parquet('project_template/data/ratings.parquet'); print(r['user_id'].head(20).tolist())"
+```
+
+---
+
+### 🏁 剩余三次课冲刺计划（建议）
+
+> 目标：三次课内做出「可复现 + 可对比 + 可交互」的轻量项目作业（推荐 Steam 轻量数据：`steam-200k.csv` + `steam-store-games`）。
+
+#### 第 1 次课（今天）要完成什么（必须完成）
+
+- **数据落盘（模板契约）**
+  - 下载并解压到 `project_template/data/`
+  - 运行转换脚本生成：
+    - `project_template/data/ratings.parquet`
+    - `project_template/data/items.parquet`
+
+```bash
+# Kaggle 下载（已配置 kaggle token）
+kaggle datasets download -d tamber/steam-video-games -p project_template/data --unzip
+kaggle datasets download -d nikdavis/steam-store-games -p project_template/data --unzip
+
+# 转换为模板所需 parquet（会自动搜 data/ 下的 steam-200k.csv、steam.csv 等）
+python -m project_template.pipeline.prepare_steam_light --mode play_only --transform log1p --min-interactions 10 --sample-users 500
+```
+
+- **Embedding 缓存（Week5 的核心产物）**
+  - 生成 `project_template/features/items_emb.parquet`
+
+```bash
+python -m project_template.pipeline.build_item_embeddings
+```
+
+- **跑通 baseline & 评估（确保闭环能跑）**
+  - 训练一个模型并评估 Top-K（输出 Precision/Recall/NDCG）
+
+```bash
+python -m project_template.pipeline.train --model baseline
+python -m project_template.pipeline.export_artifacts
+python -m project_template.pipeline.evaluate --k 10 --positive-threshold 4.0
+```
+
+- **Demo 至少跑起来一次（验收点）**
+  - Streamlit 或 FastAPI 二选一（建议 Streamlit）
+
+```bash
+streamlit run project_template/app/streamlit_app.py
+# 或：python -m project_template.app.api
+```
+
+今天课后应提交（给助教/老师检查）：
+- `checkin_week4.md`（数据来源 + 清洗统计 + 切分策略，见 `project_template/docs/CHECKINS.md`）
+- 一张评估结果截图（`Precision@K/Recall@K/NDCG@K` 输出即可）
+
+#### 第 2 次课：模型对比 + 增强（要看到提升/差异）
+
+- **至少两种模型对比**：`KernelMF` +（`ItemItemCF` 或 `UserUserCF`）
+- **加入增强**：embedding 召回 + 混合排序（`alpha` 可调）或“候选召回→MF rerank”
+- **Ablation**：无增强 vs 有增强（至少一个指标有差异）
+
+建议命令：
+
+```bash
+python -m project_template.pipeline.train --model kernel_mf --kernel linear
+python -m project_template.pipeline.evaluate --k 10 --positive-threshold 4.0
+```
+
+#### 第 3 次课：打磨 Demo + 复现 + 讲解材料
+
+- **复现脚本齐全**：从空环境到 demo 的命令一条条可跑
+- **Demo 展示**：自由文本输入 +（可选）user_id 个性化 + 解释
+- **最终报告**：设计选择、优势/限制、失败案例与下一步（见 `project_template/docs/RUBRIC.md`）
 
 ### 快速参考
 
