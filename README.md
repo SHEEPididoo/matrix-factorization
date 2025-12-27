@@ -536,6 +536,8 @@ python -c "import pandas as pd; r=pd.read_parquet('project_template/data/ratings
     - `project_template/data/items.parquet`（`item_id,text`）
   - [ ] **快速 EDA（写进 check-in）**：至少输出 4 个统计（#users/#items/#interactions、稀疏度/长尾、冷启动比例、切分策略）
   - [ ] **Embedding 缓存**：生成 `project_template/features/items_emb.parquet`
+  - [ ] **结构化特征（Week5）**：生成 `project_template/features/user_features.parquet` 与 `item_features.parquet`
+  - [ ] **文本增广（Week5，可选）**：生成 `project_template/features/items_text_enriched.parquet`（keywords 或 OpenAI）
   - [ ] **训练基线模型**：至少训练一个（baseline 或 item_cf）
   - [ ] **离线评估可跑**：跑出 `Precision@K/Recall@K/NDCG@K`（截图即可）
   - [ ] **Demo 可跑**：Streamlit 或 FastAPI 至少跑起来一次（能出推荐结果）
@@ -550,6 +552,13 @@ python -m project_template.pipeline.prepare_steam_light --mode play_only --trans
 
 # 生成文本 Embedding（缓存到 features/）
 python -m project_template.pipeline.build_item_embeddings
+
+# 生成结构化特征（缓存到 features/）
+python -m project_template.pipeline.build_structured_features
+
+# 文本增广（可选：keywords 最轻量；openai 需要 OPENAI_API_KEY 环境变量）
+python -m project_template.pipeline.build_text_enrichment --provider keywords
+# python -m project_template.pipeline.build_text_enrichment --provider openai
 
 # 训练一个模型 + 导出 demo 索引 + 评估（建议先 baseline 跑通）
 python -m project_template.pipeline.train --model baseline
@@ -575,12 +584,16 @@ streamlit run project_template/app/streamlit_app.py
     - [ ] **Embedding 增强**：embedding 召回候选 + MF/CF rerank（或 alpha 混合）
     - [ ] **LLM 抽取（可选）**：从 `items.text` 抽标签/主题/情绪，落盘缓存（用于解释或特征）
   - [ ] **Ablation**：无增强 vs 有增强（至少一个指标有差异/或给出原因）
+  - [ ] **Hybrid 离线评估**：跑 `evaluate_hybrid.py` 并与 baseline 对比
 
 建议命令：
 
 ```bash
 python -m project_template.pipeline.train --model kernel_mf --kernel linear
 python -m project_template.pipeline.evaluate --k 10 --positive-threshold 2.0 --n-test 3
+
+# Hybrid：embedding 召回候选 + 模型混合排序
+python -m project_template.pipeline.evaluate_hybrid --k 10 --candidate-k 200 --alpha 0.7 --positive-threshold 2.0 --n-test 3
 ```
 
 #### 第 3 次课：打磨 Demo + 复现（conda）+ 最终展示材料
@@ -592,6 +605,24 @@ python -m project_template.pipeline.evaluate --k 10 --positive-threshold 2.0 --n
     - [ ] 设计选择（为什么选这些特征/模型/增强）
     - [ ] 指标对比表（至少 2 个模型 + ablation）
     - [ ] 失败案例分析（至少 2 个）+ 改进方向
+
+Conda 复现建议命令（新机器/新环境可直接跑）：
+
+```bash
+conda env create -f environment.yml
+conda activate recsys-week3
+```
+
+最终报告模板：
+- `project_template/docs/final_template.md`（复制为 `project_template/docs/final.md` 填写）
+
+OpenAI Key（可选，仅在你选择 `--provider openai` 时需要）：
+- 推荐做法：在仓库根目录创建 `.env`（不会被提交）
+
+```bash
+cp env.template .env
+# 然后编辑 .env，设置 OPENAI_API_KEY=...
+```
 
 ### 快速参考
 
