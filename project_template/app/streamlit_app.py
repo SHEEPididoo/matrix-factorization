@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import pickle
 from pathlib import Path
 
@@ -7,8 +8,18 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from ..pipeline.common import Paths, repo_root_from_this_file
-from .retrieval import load_item_index, encode_query, search_topk
+# streamlit run 会以“脚本方式”执行该文件，默认没有包上下文，导致相对导入失败。
+# 这里把仓库根目录加入 sys.path，确保可用绝对导入 project_template.*
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from project_template.pipeline.common import Paths, repo_root_from_this_file  # noqa: E402
+from project_template.app.retrieval import (  # noqa: E402
+    load_item_index,
+    encode_query,
+    search_topk,
+)
 
 
 @st.cache_resource
