@@ -3,6 +3,7 @@ from __future__ import annotations
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
 
@@ -22,7 +23,7 @@ class TfidfItemIndex:
     matrix: object  # scipy.sparse.csr_matrix (pickled)
 
 
-def load_item_index(path: Path) -> ItemIndex:
+def load_item_index(path: Path) -> Union[ItemIndex, TfidfItemIndex]:
     with path.open("rb") as f:
         obj = pickle.load(f)
     index_type = obj.get("index_type", "dense")
@@ -57,7 +58,9 @@ def encode_query(text: str, model_name: str) -> np.ndarray:
     return np.asarray(q[0], dtype=np.float32)
 
 
-def encode_query_for_index(index: ItemIndex | TfidfItemIndex, text: str, model_name: str | None) -> object:
+def encode_query_for_index(
+    index: Union[ItemIndex, TfidfItemIndex], text: str, model_name: Optional[str]
+) -> object:
     if isinstance(index, TfidfItemIndex):
         return index.vectorizer.transform([text])
     if model_name is None:
@@ -65,7 +68,7 @@ def encode_query_for_index(index: ItemIndex | TfidfItemIndex, text: str, model_n
     return encode_query(text, model_name=model_name)
 
 
-def _dot_sims(index: ItemIndex | TfidfItemIndex, query_vec: object) -> np.ndarray:
+def _dot_sims(index: Union[ItemIndex, TfidfItemIndex], query_vec: object) -> np.ndarray:
     if isinstance(index, TfidfItemIndex):
         sims = index.matrix @ query_vec.T
         if hasattr(sims, "toarray"):
@@ -75,7 +78,9 @@ def _dot_sims(index: ItemIndex | TfidfItemIndex, query_vec: object) -> np.ndarra
     return np.asarray(index.embeddings @ query_vec, dtype=np.float32).ravel()
 
 
-def search_topk(index: ItemIndex | TfidfItemIndex, query_vec: object, k: int) -> list[tuple[object, float]]:
+def search_topk(
+    index: Union[ItemIndex, TfidfItemIndex], query_vec: object, k: int
+) -> list[tuple[object, float]]:
     sims = _dot_sims(index, query_vec)
     if k <= 0:
         return []
@@ -86,7 +91,7 @@ def search_topk(index: ItemIndex | TfidfItemIndex, query_vec: object, k: int) ->
 
 
 def search_topk_pos(
-    index: ItemIndex | TfidfItemIndex, query_vec: object, k: int
+    index: Union[ItemIndex, TfidfItemIndex], query_vec: object, k: int
 ) -> list[tuple[int, object, float]]:
     """
     与 search_topk 类似，但同时返回命中的位置 pos，便于在 UI 层读取对应 text。

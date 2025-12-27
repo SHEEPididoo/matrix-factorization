@@ -18,7 +18,8 @@ if str(_REPO_ROOT) not in sys.path:
 from project_template.pipeline.common import Paths, repo_root_from_this_file  # noqa: E402
 from project_template.app.retrieval import (  # noqa: E402
     load_item_index,
-    encode_query,
+    TfidfItemIndex,
+    encode_query_for_index,
     search_topk_pos,
 )
 
@@ -42,7 +43,10 @@ def _model_score(model, user_id, item_ids: list) -> np.ndarray:
     if model is None or user_id is None or user_id == "":
         return np.zeros(len(item_ids), dtype=np.float32)
     X = pd.DataFrame({"user_id": [user_id] * len(item_ids), "item_id": item_ids})
-    preds = model.predict(X, bound_ratings=False)
+    try:
+        preds = model.predict(X, bound_ratings=False)
+    except Exception:
+        return np.zeros(len(item_ids), dtype=np.float32)
     return np.asarray(preds, dtype=np.float32)
 
 
@@ -80,26 +84,63 @@ def _build_query_from_needs(
     max_time_min: int,
     extra: str,
 ) -> str:
+    goal_map = {
+        "随便推荐": "",
+        "减脂/低卡": "low calorie",
+        "增肌/高蛋白": "high protein",
+        "控糖/低碳": "low carb",
+        "清淡/低盐": "low sodium",
+    }
+    meal_map = {"不限": "", "早餐": "breakfast", "午餐": "lunch", "晚餐": "dinner", "加餐/零食": "snack"}
+    cuisine_map = {
+        "家常": "home cooking",
+        "中式": "chinese",
+        "川菜": "sichuan",
+        "粤菜": "cantonese",
+        "日式": "japanese",
+        "韩式": "korean",
+        "泰式": "thai",
+        "西式": "western",
+        "地中海": "mediterranean",
+        "墨西哥": "mexican",
+        "印度": "indian",
+    }
+    dietary_map = {
+        "素食": "vegetarian",
+        "纯素": "vegan",
+        "无麸质": "gluten-free",
+        "无乳糖": "lactose-free",
+        "不吃猪肉": "no pork",
+        "不吃牛肉": "no beef",
+        "清真": "halal",
+    }
+
     parts: list[str] = []
 
-    if goal and goal != "随便推荐":
-        parts.append(goal)
-    if meal_type and meal_type != "不限":
-        parts.append(f"{meal_type}")
+    goal_en = goal_map.get(goal, goal)
+    if goal_en:
+        parts.append(goal_en)
+
+    meal_en = meal_map.get(meal_type, meal_type)
+    if meal_en:
+        parts.append(meal_en)
+
     if cuisines:
-        parts.append("偏好菜系：" + "、".join(cuisines))
+        cuisines_en = [cuisine_map.get(c, c) for c in cuisines]
+        parts.append("cuisine: " + ", ".join(cuisines_en))
     if dietary:
-        parts.append("饮食偏好：" + "、".join(dietary))
+        dietary_en = [dietary_map.get(d, d) for d in dietary]
+        parts.append("dietary: " + ", ".join(dietary_en))
     if max_time_min:
-        parts.append(f"{max_time_min}分钟内完成")
+        parts.append(f"ready in {max_time_min} minutes")
     if must_include:
-        parts.append("尽量包含食材：" + "、".join(must_include))
+        parts.append("include: " + ", ".join(must_include))
     if avoid:
-        parts.append("避免：" + "、".join(avoid))
+        parts.append("avoid: " + ", ".join(avoid))
     if extra and extra.strip():
         parts.append(extra.strip())
 
-    return "；".join(parts) if parts else "随便推荐"
+    return "; ".join(parts) if parts else "random"
 
 
 def main() -> None:
@@ -110,12 +151,29 @@ def main() -> None:
     model_path = paths.artifacts_dir / "model.pkl"
     index_path = paths.artifacts_dir / "item_index.pkl"
 
+    model = _load_model(model_path)
+    index = _load_index(index_path)
+
+    index_type = "missing"
+    if index is not None:
+        index_type = "tfidf" if isinstance(index, TfidfItemIndex) else "dense"
+
     with st.sidebar:
         st.header("设置")
-        embedding_model = st.text_input(
-            "Embedding 模型（sentence-transformers）",
-            value="sentence-transformers/all-MiniLM-L6-v2",
-        )
+        st.caption(f"index_type: {index_type}")
+
+        embedding_model = None
+        if index_type == "dense":
+            embedding_model = st.text_input(
+                "Embedding 模型（sentence-transformers）",
+                value="sentence-transformers/all-MiniLM-L6-v2",
+            )
+        else:
+            st.text_input(
+                "Embedding 模型（sentence-transformers）",
+                value="（TF-IDF index 不需要）",
+                disabled=True,
+            )
         user_id = st.text_input("user_id（可选，用于个性化）", value="")
         k = st.slider("返回数量 K", min_value=1, max_value=50, value=10, step=1)
         candidate_k = st.slider("召回候选数", min_value=10, max_value=500, value=50, step=10)
@@ -126,15 +184,15 @@ def main() -> None:
         st.code(str(model_path))
         st.code(str(index_path))
 
-    model = _load_model(model_path)
-    index = _load_index(index_path)
-
     if index is None:
         st.error(
-            "缺少 `item_index.pkl`。请先按模板运行：\n"
-            "1) 生成数据（可选 MovieLens）\n"
-            "2) build_item_embeddings\n"
-            "3) export_artifacts\n"
+            "缺少 `item_index.pkl`。\n\n"
+            "如果你要用食谱数据 `data/full_dataset.csv`：\n"
+            "1) python -m project_template.pipeline.prepare_recipes_full_dataset\n"
+            "2) python -m project_template.pipeline.build_tfidf_index  （快速/无网络）\n\n"
+            "或使用 embedding 路线：\n"
+            "2) python -m project_template.pipeline.build_item_embeddings\n"
+            "3) python -m project_template.pipeline.export_artifacts\n"
         )
         st.stop()
 
@@ -202,7 +260,7 @@ def main() -> None:
                 st.code(query)
 
             try:
-                qvec = encode_query(query, model_name=embedding_model)
+                qvec = encode_query_for_index(index, query, model_name=embedding_model)
             except Exception as e:
                 st.error(str(e))
                 st.stop()
@@ -266,14 +324,14 @@ def main() -> None:
         st.subheader("自由文本")
         query = st.text_area(
             "输入你的需求（自由文本）",
-            value="我想吃简单快手的高蛋白晚餐，不要花生，不要牛奶",
+            value="I want a quick high protein dinner under 30 minutes, no peanut, no milk.",
             height=80,
         )
         run = st.button("生成推荐", type="primary")
 
         if run:
             try:
-                qvec = encode_query(query, model_name=embedding_model)
+                qvec = encode_query_for_index(index, query, model_name=embedding_model)
             except Exception as e:
                 st.error(str(e))
                 st.stop()

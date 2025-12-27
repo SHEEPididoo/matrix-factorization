@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import pyarrow as pa
@@ -70,7 +71,7 @@ def _build_text(
 def prepare_items_parquet(
     csv_path: Path,
     out_items: Path,
-    max_rows: int | None,
+    max_rows: Optional[int],
     chunksize: int,
     include_directions: bool,
     max_ingredients: int,
@@ -79,7 +80,7 @@ def prepare_items_parquet(
     usecols = ["title", "ingredients", "directions", "link", "source", "NER"]
 
     out_items.parent.mkdir(parents=True, exist_ok=True)
-    writer: pq.ParquetWriter | None = None
+    writer: Optional[pq.ParquetWriter] = None
     rows_written = 0
 
     try:

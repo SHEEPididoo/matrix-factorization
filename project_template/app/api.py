@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from ..pipeline.common import Paths, repo_root_from_this_file
-from .retrieval import load_item_index, encode_query, search_topk
+from .retrieval import TfidfItemIndex, load_item_index, encode_query_for_index, search_topk
 
 
 class RecommendRequest(BaseModel):
@@ -21,7 +21,7 @@ class RecommendRequest(BaseModel):
     alpha: float = Field(default=0.7, ge=0.0, le=1.0, description="混合权重：alpha*模型分数 + (1-alpha)*embedding相似度")
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
-        description="用于编码 query 的 sentence-transformers 模型名",
+        description="用于编码 query 的 sentence-transformers 模型名（仅 dense index 需要）",
     )
 
 
@@ -45,7 +45,10 @@ def _model_score(model, user_id: Any | None, item_ids: list[Any]) -> np.ndarray:
         # 没有 user_id 时：退化成“非个性化”分数 0
         return np.zeros(len(item_ids), dtype=np.float32)
     X = pd.DataFrame({"user_id": [user_id] * len(item_ids), "item_id": item_ids})
-    preds = model.predict(X, bound_ratings=False)
+    try:
+        preds = model.predict(X, bound_ratings=False)
+    except Exception:
+        return np.zeros(len(item_ids), dtype=np.float32)
     return np.asarray(preds, dtype=np.float32)
 
 
@@ -70,10 +73,14 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
+        index_type = None
+        if state["index"] is not None:
+            index_type = "tfidf" if isinstance(state["index"], TfidfItemIndex) else "dense"
         return {
             "ok": True,
             "has_model": state["model"] is not None,
             "has_item_index": state["index"] is not None,
+            "index_type": index_type,
             "expected_artifacts": {
                 "model": str(model_path),
                 "item_index": str(index_path),
@@ -84,12 +91,14 @@ def create_app() -> FastAPI:
     def recommend(req: RecommendRequest) -> RecommendResponse:
         if state["index"] is None:
             raise RuntimeError(
-                "缺少 item_index.pkl。请先运行：python -m project_template.pipeline.build_item_embeddings "
-                "然后运行：python -m project_template.pipeline.export_artifacts"
+                "缺少 item_index.pkl。你可以：\n"
+                "A) TF-IDF（无需 sentence-transformers）：python -m project_template.pipeline.build_tfidf_index\n"
+                "B) Embedding：python -m project_template.pipeline.build_item_embeddings 然后运行："
+                "python -m project_template.pipeline.export_artifacts"
             )
 
         index = state["index"]
-        qvec = encode_query(req.query, model_name=req.embedding_model)
+        qvec = encode_query_for_index(index, req.query, model_name=req.embedding_model)
         candidates = search_topk(index, qvec, k=req.candidate_k)
         cand_item_ids = [item_id for (item_id, _) in candidates]
         cand_sims = np.asarray([sim for (_, sim) in candidates], dtype=np.float32)
@@ -136,4 +145,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

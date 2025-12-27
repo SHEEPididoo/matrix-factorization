@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import pickle
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -13,11 +14,11 @@ from .common import Paths, repo_root_from_this_file, require_columns
 def build_tfidf_index(
     items_path: Path,
     out_index_path: Path,
-    max_rows: int | None,
+    max_rows: Optional[int],
     max_features: int,
     min_df: int,
     ngram_max: int,
-    stop_words: str | None,
+    stop_words: Optional[str],
 ) -> None:
     items = pd.read_parquet(items_path)
     require_columns(items, ["item_id", "text"], "items")
@@ -101,4 +102,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
