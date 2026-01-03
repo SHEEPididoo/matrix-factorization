@@ -3,6 +3,7 @@ from __future__ import annotations
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
+from functools import lru_cache
 from typing import Optional, Union
 
 import numpy as np
@@ -51,9 +52,17 @@ def _safe_import_sentence_transformers():
     return SentenceTransformer
 
 
-def encode_query(text: str, model_name: str) -> np.ndarray:
+@lru_cache(maxsize=8)
+def _get_st_model(model_name: str):
+    """
+    缓存 SentenceTransformer 模型实例，避免在高频 encode 时反复加载模型导致极慢。
+    """
     SentenceTransformer = _safe_import_sentence_transformers()
-    model = SentenceTransformer(model_name)
+    return SentenceTransformer(model_name)
+
+
+def encode_query(text: str, model_name: str) -> np.ndarray:
+    model = _get_st_model(model_name)
     q = model.encode([text], convert_to_numpy=True, normalize_embeddings=True)
     return np.asarray(q[0], dtype=np.float32)
 

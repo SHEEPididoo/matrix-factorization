@@ -138,3 +138,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+project_template/data/full_dataset.csv
+project_template/artifacts/item_index.pkl
+
+# project_template: generated data / features / artifacts (do not commit)
+project_template/data/*.parquet
+project_template/data/*.pkl
+project_template/data/*steam*.csv
+project_template/features/*.parquet
+project_template/features/*.pkl
+project_template/artifacts/*.pkl
+project_template/artifacts/*.json

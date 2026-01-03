@@ -1,819 +1,196 @@
-# 推荐系统实现（Recommendation Systems）
+## 每日饮食食谱推荐系统（无用户历史）
 
-本课程项目实现了多种推荐系统算法，包括基于内容的推荐、协同过滤（用户-用户、物品-物品）和基于矩阵分解的模型。
+本仓库包含两部分：
 
-## 📚 课程内容
+- **`project_template/`**：当前项目的主实现，一个“问卷/文本输入 → 召回 → 硬过滤 → rerank → 多样性重排 → 每日餐单”的推荐系统 Demo（支持 TF‑IDF 或多语 Embedding；支持 LLM 评估）。
+- **`matrix_factorization/`**：课程 Week3 的传统推荐算法实现（MF/CF 等）。本项目场景为“无用户历史”，因此 MF/CF 不作为主链路依赖，但保留在仓库中。
 
-**Build a basic recommender using content-based filtering and implement user-user and item-item collaborative filtering.**
-
-本课程涵盖以下推荐系统方法：
-
-1. **基于内容的推荐（Content-Based Filtering）** - 📘 [学习顺序：第1个](#-第一阶段基础推荐系统方法)
-2. **协同过滤（Collaborative Filtering）** - 📘 [学习顺序：第2-3个](#-第一阶段基础推荐系统方法)
-   - 用户-用户协同过滤（User-User CF）
-   - 物品-物品协同过滤（Item-Item CF）
-3. **基于模型的协同过滤（Model-Based CF）** - 📘 [学习顺序：第4个](#-第二阶段高级模型方法)
-   - 矩阵分解（Matrix Factorization）
-   - 核矩阵分解（Kernel Matrix Factorization）
-4. **推荐系统评估与实际实现** - 📘 [学习顺序：第5个](#-第三阶段评估与实践)
-   - 评估指标、相似度度量、离线/在线评估、冷启动问题
+### 你能得到什么
+- **问卷式推荐**：目标（低卡/高蛋白/低碳…）+ 餐次 + 菜系 + 饮食限制 + 忌口/过敏 + 时间约束
+- **每日餐单**：早餐/午餐/晚餐（可选加餐），跨餐次多样性（食材 overlap 惩罚）
+- **弱监督 reranker**：无需用户行为，也能训练一个轻量模型改进排序（`artifacts/reranker.pkl`）
+- **LLM 评估（可选）**：对推荐结果做自动评分与违规分析，且评估口径与线上硬过滤保持一致
 
 ---
 
-## 🎯 推荐系统方法详解
-
-### 1. 基于内容的推荐（Content-Based Filtering）
-
-**核心思想：**
-- 通过分析物品的特征（如电影的类型、演员、导演等）来推荐与用户历史偏好相似的物品
-- 如果用户喜欢某个物品，那么具有相似特征的其他物品也应该被推荐
-
-**工作原理：**
-1. 提取物品特征（如电影类型、演员、导演等）
-2. 构建用户偏好档案（基于用户历史评分）
-3. 计算物品之间的相似度（基于特征）
-4. 推荐与用户偏好最相似的物品
-
-**优点：**
-- ✅ **可解释性强**：可以解释为什么推荐某个物品（基于特征相似度）
-- ✅ **冷启动友好**：新用户只要有历史偏好就能推荐，新物品只要有特征就能被推荐
-- ✅ **不受流行度影响**：不会因为物品流行就推荐，可以推荐小众但符合用户偏好的物品
-
-**缺点：**
-- ❌ **特征工程复杂**：需要提取和选择好的特征
-- ❌ **推荐多样性有限**：可能过度推荐相似物品
-- ❌ **无法发现新兴趣**：只能基于已有偏好推荐
-
-**使用示例：**
-```python
-from matrix_factorization import ContentBasedRecommender
-import pandas as pd
-
-# 加载数据和物品特征
-movie_data = pd.read_csv('data/ml-100k/u.data', ...)
-item_features = pd.read_csv('data/ml-100k/u.item', ...)  # 包含电影类型等特征
-
-# 训练模型
-model = ContentBasedRecommender(min_rating=1, max_rating=5)
-model.fit(X_train, y_train, item_features=item_features)
-
-# 生成推荐
-recommendations = model.recommend(user=200, amount=10)
-```
-
----
-
-### 2. 用户-用户协同过滤（User-User Collaborative Filtering）
-
-**核心思想：**
-- 通过找到与目标用户相似的其他用户，然后推荐这些相似用户喜欢的物品
-- 相似的用户会有相似的偏好
-
-**工作原理：**
-1. 构建用户-物品评分矩阵
-2. 计算用户之间的相似度（余弦相似度或皮尔逊相关系数）
-3. 找到与目标用户最相似的K个用户
-4. 基于相似用户的评分，加权预测目标用户对物品的评分
-
-**预测公式：**
-```
-pred(u, i) = mean_u + Σ(sim(u, v) × (rating(v, i) - mean_v)) / Σ|sim(u, v)|
-```
-其中：
-- `u` 是目标用户
-- `i` 是目标物品
-- `v` 是相似用户
-- `sim(u, v)` 是用户相似度
-- `mean_u` 是用户u的平均评分
-
-**优点：**
-- ✅ **能够发现用户的潜在兴趣**：通过相似用户发现新物品
-- ✅ **推荐多样性好**：可以推荐不同类型的物品
-- ✅ **不需要物品特征**：只需要用户-物品评分矩阵
-
-**缺点：**
-- ❌ **冷启动问题**：新用户没有足够评分，难以找到相似用户
-- ❌ **稀疏性问题**：用户-物品矩阵通常很稀疏
-- ❌ **计算复杂度高**：需要计算所有用户之间的相似度
-- ❌ **可扩展性差**：用户数量增长时，相似度矩阵会变得非常大
-
-**使用示例：**
-```python
-from matrix_factorization import UserUserCF
-
-# 训练模型
-model = UserUserCF(
-    min_rating=1, 
-    max_rating=5, 
-    n_neighbors=50,  # 使用50个最相似的用户
-    similarity_metric='cosine'
-)
-model.fit(X_train, y_train)
-
-# 生成推荐
-recommendations = model.recommend(user=200, amount=10)
-```
-
----
-
-### 3. 物品-物品协同过滤（Item-Item Collaborative Filtering）
-
-**核心思想：**
-- 通过找到与目标物品相似的其他物品，然后基于用户对这些相似物品的评分来预测
-- 相似的物品会收到相似的评分
-
-**工作原理：**
-1. 构建用户-物品评分矩阵
-2. 计算物品之间的相似度（余弦相似度或皮尔逊相关系数）
-3. 找到与目标物品最相似的K个物品
-4. 基于用户对相似物品的评分，加权预测用户对目标物品的评分
-
-**预测公式：**
-```
-pred(u, i) = mean_i + Σ(sim(i, j) × (rating(u, j) - mean_j)) / Σ|sim(i, j)|
-```
-其中：
-- `u` 是目标用户
-- `i` 是目标物品
-- `j` 是相似物品
-- `sim(i, j)` 是物品相似度
-- `mean_i` 是物品i的平均评分
-
-**优点：**
-- ✅ **物品相似度更稳定**：物品特征变化较慢，相似度矩阵可以预先计算和缓存
-- ✅ **可扩展性更好**：物品数量通常远少于用户数量，相似度矩阵更小
-- ✅ **推荐解释性强**：可以解释为"因为您喜欢X，而Y与X相似，所以推荐Y"
-- ✅ **实时推荐效率高**：可以快速为新用户生成推荐
-
-**缺点：**
-- ❌ **冷启动问题**：新物品没有足够评分，难以找到相似物品
-- ❌ **稀疏性问题**：用户-物品矩阵通常很稀疏
-
-**为什么物品-物品通常优于用户-用户？**
-- 物品数量通常远少于用户数量（如Netflix有数亿用户但只有数万电影）
-- 物品相似度更稳定，可以预先计算
-- 推荐解释更直观（"因为您喜欢X，推荐相似的Y"）
-
-**使用示例：**
-```python
-from matrix_factorization import ItemItemCF
-
-# 训练模型
-model = ItemItemCF(
-    min_rating=1, 
-    max_rating=5, 
-    n_neighbors=50,  # 使用50个最相似的物品
-    similarity_metric='cosine'
-)
-model.fit(X_train, y_train)
-
-# 生成推荐
-recommendations = model.recommend(user=200, amount=10)
-```
-
----
-
-### 4. 基于模型的协同过滤（Model-Based CF）
-
-#### 4.1 基线模型（Baseline Model）
-
-简单的偏差模型，将用户-物品评分建模为：
-```
-r_ui = μ + bias_u + bias_i
-```
-其中：
-- `μ` 是全局平均评分
-- `bias_u` 是用户偏差
-- `bias_i` 是物品偏差
-
-**训练方法：**
-- **SGD（随机梯度下降）**：迭代优化用户和物品偏差
-- **ALS（交替最小二乘法）**：交替优化用户偏差和物品偏差
-
-#### 4.2 矩阵分解（Matrix Factorization）
-
-将用户-物品评分矩阵分解为两个低维矩阵：
-```
-R ≈ P × Q^T
-```
-其中：
-- `P` 是用户特征矩阵 (n_users × n_factors)
-- `Q` 是物品特征矩阵 (n_items × n_factors)
-- `n_factors` 是潜在因子数量
-
-**预测公式：**
-```
-r_ui = μ + bias_u + bias_i + P_u · Q_i^T
-```
-
-**核函数：**
-- **线性核（Linear）**：标准点积
-- **Sigmoid核**：使用sigmoid函数进行非线性变换
-- **RBF核（径向基函数）**：基于高斯核的相似度
-
-**优点：**
-- ✅ **处理稀疏数据**：通过潜在因子捕获用户和物品的隐含特征
-- ✅ **可扩展性好**：可以处理大规模数据
-- ✅ **在线更新**：支持新用户的在线学习
-
-**使用示例：**
-```python
-from matrix_factorization import KernelMF
-
-# 训练模型
-model = KernelMF(
-    n_epochs=20,
-    n_factors=100,
-    kernel='linear',  # 或 'sigmoid', 'rbf'
-    lr=0.001,
-    reg=0.005
-)
-model.fit(X_train, y_train)
-
-# 在线更新新用户
-model.update_users(X_new_users, y_new_users, n_epochs=20)
-
-# 生成推荐
-recommendations = model.recommend(user=200, amount=10)
-```
-
----
-
-## 📁 项目结构
-
-```
-week3/
-├── data/
-│   └── ml-100k/                      # MovieLens 100K数据集
-├── examples/
-│   ├── [0] example.py                        # 快速示例（可选）
-│   ├── [1] content-based-filtering.ipynb     # 基于内容推荐（第1个学习）
-│   ├── [2] user-user-cf.ipynb                # 用户-用户协同过滤（第2个学习）
-│   ├── [3] item-item-cf.ipynb                # 物品-物品协同过滤（第3个学习）
-│   ├── [4] recommender-system.ipynb          # 矩阵分解完整示例（第4个学习）
-│   └── [5] recommender-evaluation.ipynb      # 评估与实际实现（第5个学习）
-├── matrix_factorization/
-│   ├── __init__.py                           # 模块导出
-│   ├── recommender_base.py                   # 推荐系统基类
-│   ├── baseline_model.py                     # 基线模型
-│   ├── kernel_matrix_factorization.py        # 核矩阵分解
-│   ├── content_based.py                      # 基于内容推荐
-│   ├── collaborative_filtering.py            # 协同过滤（用户-用户、物品-物品）
-│   ├── kernels.py                            # 核函数实现
-│   └── utils.py                              # 工具函数
-├── README.md                                  # 本文件
-└── requirements.txt                           # 依赖包
-```
-
-**注意：** 文件名前的 `[数字]` 表示推荐的学习顺序
-
----
-
-## 🚀 快速开始
-
-### 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## 📖 学习顺序（推荐阅读路径）
-
-本课程建议按照以下顺序学习，从基础到进阶，循序渐进：
-
-### 第一阶段：基础推荐系统方法
-
-#### 📘 1. 基于内容的推荐（Content-Based Filtering）
-**文件：** `examples/content-based-filtering.ipynb`
-
-**学习目标：**
-- 理解基于内容的推荐原理
-- 学习如何使用物品特征进行推荐
-- 掌握特征工程的基本方法
-
-**为什么先学这个？**
-- 最直观易懂，不需要其他用户数据
-- 可以处理冷启动问题
-- 为后续方法打下基础
-
----
-
-#### 📘 2. 用户-用户协同过滤（User-User Collaborative Filtering）
-**文件：** `examples/user-user-cf.ipynb`
-
-**学习目标：**
-- 理解协同过滤的核心思想
-- 学习如何计算用户相似度
-- 掌握基于相似用户的推荐方法
-
-**为什么学这个？**
-- 理解"物以类聚，人以群分"的推荐思想
-- 学习相似度度量的应用
-- 为理解物品-物品协同过滤做准备
-
----
-
-#### 📘 3. 物品-物品协同过滤（Item-Item Collaborative Filtering）
-**文件：** `examples/item-item-cf.ipynb`
-
-**学习目标：**
-- 理解物品相似度的概念
-- 学习最常用的协同过滤方法
-- 掌握为什么物品-物品通常优于用户-用户
-
-**为什么学这个？**
-- 这是实际应用中最常用的方法
-- 理解可扩展性的重要性
-- 学习推荐系统的工程实践
-
----
-
-### 第二阶段：高级模型方法
-
-#### 📘 4. 矩阵分解（Matrix Factorization）
-**文件：** `examples/recommender-system.ipynb`
-
-**学习目标：**
-- 理解矩阵分解的原理
-- 学习潜在因子模型
-- 掌握不同核函数的使用
-- 学习在线更新机制
-
-**为什么学这个？**
-- 理解现代推荐系统的核心算法
-- 学习如何处理大规模稀疏数据
-- 掌握模型训练和调优方法
-
-**包含内容：**
-- 基线模型（Baseline Model）
-- 矩阵分解（线性核、Sigmoid核、RBF核）
-- 在线学习（Online Learning）
-- Scikit-learn兼容性
-
----
-
-### 第三阶段：评估与实践
-
-#### 📘 5. 推荐系统评估与实际实现
-**文件：** `examples/recommender-evaluation.ipynb`
-
-**学习目标：**
-- 掌握推荐系统的评估指标
-- 理解相似度度量的原理
-- 学习离线评估和在线A/B测试
-- 解决冷启动问题
-- 构建完整的评估管道
-
-**为什么最后学这个？**
-- 需要先理解各种推荐方法
-- 评估方法适用于所有模型
-- 这是实际项目中的关键技能
-
-**包含内容：**
-- 评估指标：RMSE, Precision, Recall, F1-score
-- 相似度度量：余弦相似度、欧氏距离、皮尔逊相关系数
-- 离线评估 vs 在线A/B测试
-- 冷启动问题及处理策略
-- 模型性能比较
-
----
-
-## 🧩 Week4–Week8 项目模板（课程大作业）
-
-为了让学员在 Week3 的代码基础上做一个“可复现、可对比、可交互”的完整推荐系统项目，本仓库提供了项目模板：
-
-- **模板目录**：`project_template/`
-- **周计划**：`project_template/docs/WEEK_PLAN.md`
-- **每周 Check-in 模板**：`project_template/docs/CHECKINS.md`
-- **评分 Rubric**：`project_template/docs/RUBRIC.md`
-- **流水线脚本**：`project_template/pipeline/`
-- **Demo API（FastAPI）**：`project_template/app/api.py`
-
-> 注：LLM/Embedding 与 Demo 依赖放在 `project_template/requirements-optional.txt`，避免影响 Week3 的基础环境。
-
-### 模板目录结构（建议保持不变）
+## 目录结构（与你当前项目相关的部分）
 
 ```
 project_template/
-  data/                 # 原始/清洗后的数据（建议用 .parquet）
-  features/             # 缓存的特征（embedding、标签、统计特征等）
-  artifacts/            # 训练好的模型与索引（可直接用于 demo）
-  pipeline/             # 数据/特征/训练/评估脚本
-  app/                  # Demo（API 或 UI）
-  docs/                 # 周计划、check-in、rubric、说明文档
-```
-
-### 数据契约（所有脚本默认遵守）
-
-#### 1) 交互表（ratings）
-
-文件：`project_template/data/ratings.parquet`
-
-必须包含列：
-- `user_id`
-- `item_id`
-- `rating`
-
-可选列：
-- `timestamp`
-
-#### 2) 物品表（items）
-
-文件：`project_template/data/items.parquet`
-
-必须包含列：
-- `item_id`
-- `text`（用于 embedding/LLM 的文本字段：标题+简介/标签/评论拼接均可）
-
-### Demo 快速跑通（推荐课堂用法）
-
-#### 0) 安装可选依赖（Embedding / Demo / UI）
-
-```bash
-pip install -r project_template/requirements-optional.txt
-```
-
-#### 1) 一键生成示例数据（MovieLens 小样本，可选但推荐）
-
-```bash
-python -m project_template.pipeline.download_movielens_small --sample-users 500 --min-interactions 10
-```
-
-会生成：
-- `project_template/data/ratings.parquet`
-- `project_template/data/items.parquet`
-
-> 如果你使用自选数据集：请确保生成同名 parquet，并满足本节「数据契约」（`ratings: user_id,item_id,rating`；`items: item_id,text`）。
-
-#### 2) 生成文本 Embedding（缓存到 features/）
-
-```bash
-python -m project_template.pipeline.build_item_embeddings
-```
-
-产物：
-- `project_template/features/items_emb.parquet`
-
-#### 3) 训练一个模型（保存到 artifacts/）
-
-```bash
-python -m project_template.pipeline.train --model kernel_mf --kernel linear
-```
-
-可选模型：
-- `--model baseline`
-- `--model kernel_mf`（可配 `--kernel linear|sigmoid|rbf`）
-- `--model item_cf`
-- `--model user_cf`
-
-产物：
-- `project_template/artifacts/model.pkl`
-
-#### 4) 导出 Demo 索引（embedding 检索用）
-
-```bash
-python -m project_template.pipeline.export_artifacts
-```
-
-产物：
-- `project_template/artifacts/item_index.pkl`
-
-#### 5) 离线评估（简化版 Top-K）
-
-```bash
-python -m project_template.pipeline.evaluate --k 10 --positive-threshold 4.0
-```
-
-输出：
-- `Precision@K / Recall@K / NDCG@K`
-
-#### 6A) 启动 Demo API（FastAPI）
-
-```bash
-python -m project_template.app.api
-```
-
-打开 Swagger：
-- `http://127.0.0.1:8000/docs`
-
-#### 6B) 启动课堂展示 UI（Streamlit，更推荐）
-
-```bash
-streamlit run project_template/app/streamlit_app.py
-```
-
-你可以在 UI 里：
-- 输入自由文本 query（如“轻松搞笑的游戏”）
-- （可选）输入 `user_id` 做个性化混合排序（alpha 可调）
-
-示例（本仓库当前 Steam 小样本数据中存在的 `user_id`，可直接复制到 UI）：
-- `101142088`
-- `101596530`
-- `101878879`
-- `102270213`
-- `102295765`
-
-如果你用的是自己的数据集：用下面命令查看一些可用的 `user_id`：
-
-```bash
-python -c "import pandas as pd; r=pd.read_parquet('project_template/data/ratings.parquet'); print(r['user_id'].head(20).tolist())"
+  data/                 # 原始/清洗后的数据（例如 full_dataset.csv、items.parquet）
+  features/             # 缓存特征（items_emb.parquet、recipe_meta.parquet 等）
+  artifacts/            # 索引/模型产物（item_index.pkl、reranker.pkl、llm_eval_report.json）
+  pipeline/             # 数据/特征/训练/评估脚本（python -m 运行）
+  app/                  # Demo（Streamlit / FastAPI）与通用工具
 ```
 
 ---
 
-### 🏁 剩余三次课冲刺计划（建议）
+## 环境安装
 
-> 目标：三次课内做出「可复现 + 可对比 + 可交互」的轻量项目作业（推荐 Steam 轻量数据：`steam-200k.csv` + `steam-store-games`）。
-
-#### 第 1 次课（今天）：数据闭环 + 基线可跑（必须完成）
-
-- ✅ **TODO（今天必须完成）**
-  - [ ] **数据下载**：Kaggle 数据集下载并解压到 `project_template/data/`
-  - [ ] **数据转换**：生成模板契约文件
-    - `project_template/data/ratings.parquet`（`user_id,item_id,rating`）
-    - `project_template/data/items.parquet`（`item_id,text`）
-  - [ ] **快速 EDA（写进 check-in）**：至少输出 4 个统计（#users/#items/#interactions、稀疏度/长尾、冷启动比例、切分策略）
-  - [ ] **Embedding 缓存**：生成 `project_template/features/items_emb.parquet`
-  - [ ] **结构化特征（Week5）**：生成 `project_template/features/user_features.parquet` 与 `item_features.parquet`
-  - [ ] **文本增广（Week5，可选）**：生成 `project_template/features/items_text_enriched.parquet`（keywords 或 OpenAI）
-  - [ ] **训练基线模型**：至少训练一个（baseline 或 item_cf）
-  - [ ] **离线评估可跑**：跑出 `Precision@K/Recall@K/NDCG@K`（截图即可）
-  - [ ] **Demo 可跑**：Streamlit 或 FastAPI 至少跑起来一次（能出推荐结果）
-
-```bash
-# Kaggle 下载（已配置 kaggle token）
-kaggle datasets download -d tamber/steam-video-games -p project_template/data --unzip
-kaggle datasets download -d nikdavis/steam-store-games -p project_template/data --unzip
-
-# 转换为模板所需 parquet（会自动搜 data/ 下的 steam-200k.csv、steam.csv 等）
-python -m project_template.pipeline.prepare_steam_light --mode play_only --transform log1p --min-interactions 10 --sample-users 500
-
-# 生成文本 Embedding（缓存到 features/）
-python -m project_template.pipeline.build_item_embeddings
-
-# 生成结构化特征（缓存到 features/）
-python -m project_template.pipeline.build_structured_features
-
-# 文本增广（可选：keywords 最轻量；openai 需要 OPENAI_API_KEY 环境变量）
-python -m project_template.pipeline.build_text_enrichment --provider keywords
-# python -m project_template.pipeline.build_text_enrichment --provider openai
-
-# 训练一个模型 + 导出 demo 索引 + 评估（建议先 baseline 跑通）
-python -m project_template.pipeline.train --model baseline
-python -m project_template.pipeline.export_artifacts
-python -m project_template.pipeline.evaluate --k 10 --positive-threshold 2.0 --n-test 3
-```
-
-今天课后应提交（给助教/老师检查）：
-- `checkin_week4.md`（数据来源 + 清洗统计 + 切分策略，见 `project_template/docs/CHECKINS.md`）
-- 一张评估结果截图（`Precision@K/Recall@K/NDCG@K` 输出即可）
-
-```bash
-streamlit run project_template/app/streamlit_app.py
-# 或：python -m project_template.app.api
-```
-
-#### 第 2 次课：特征工程 + 模型对比 + 增强（要看到提升/差异）
-
-- ✅ **TODO（第2次课必须完成）**
-  - [ ] **至少两种模型对比**：`KernelMF` +（`ItemItemCF` 或 `UserUserCF`）
-  - [ ] **结构化特征（Week5）**：至少实现 2–3 个简单特征（如流行度/用户活跃度/均值），并写进报告（哪怕先不进模型也行）
-  - [ ] **Embedding/LLM 增强（Week5/6）**（二选一即可）
-    - [ ] **Embedding 增强**：embedding 召回候选 + MF/CF rerank（或 alpha 混合）
-    - [ ] **LLM 抽取（可选）**：从 `items.text` 抽标签/主题/情绪，落盘缓存（用于解释或特征）
-  - [ ] **Ablation**：无增强 vs 有增强（至少一个指标有差异/或给出原因）
-  - [ ] **Hybrid 离线评估**：跑 `evaluate_hybrid.py` 并与 baseline 对比
-
-建议命令：
-
-```bash
-python -m project_template.pipeline.train --model kernel_mf --kernel linear
-python -m project_template.pipeline.evaluate --k 10 --positive-threshold 2.0 --n-test 3
-
-# Hybrid：embedding 召回候选 + 模型混合排序
-python -m project_template.pipeline.evaluate_hybrid --k 10 --candidate-k 200 --alpha 0.7 --positive-threshold 2.0 --n-test 3
-```
-
-#### 第 3 次课：打磨 Demo + 复现（conda）+ 最终展示材料
-
-- ✅ **TODO（第3次课必须完成）**
-  - [ ] **Conda 可复现**：提供 `environment.yml`（或明确 conda 安装步骤），新环境可跑通训练/评估/demo
-  - [ ] **Demo 展示打磨**：自由文本输入 +（可选）`user_id` 个性化 + 解释（为什么推荐它）
-  - [ ] **最终报告/展示**（对照 Rubric）
-    - [ ] 设计选择（为什么选这些特征/模型/增强）
-    - [ ] 指标对比表（至少 2 个模型 + ablation）
-    - [ ] 失败案例分析（至少 2 个）+ 改进方向
-
-Conda 复现建议命令（新机器/新环境可直接跑）：
+### 方式 A：conda（推荐）
 
 ```bash
 conda env create -f environment.yml
 conda activate recsys-week3
 ```
 
-最终报告模板：
-- `project_template/docs/final_template.md`（复制为 `project_template/docs/final.md` 填写）
+### 方式 B：pip（仅基础依赖）
 
-OpenAI Key（可选，仅在你选择 `--provider openai` 时需要）：
-- 推荐做法：在仓库根目录创建 `.env`（不会被提交）
+```bash
+pip install -r requirements.txt
+pip install -r project_template/requirements-optional.txt
+```
+
+---
+
+## 数据准备（你的食谱数据集）
+
+你当前使用的原始数据：`project_template/data/full_dataset.csv`（字段见 EDA：title/ingredients/directions/link/source/NER）。
+
+### 1) 生成 `items.parquet`（必须）
+
+```bash
+python -m project_template.pipeline.prepare_recipes_full_dataset \
+  --csv "project_template/data/full_dataset.csv" \
+  --max-rows 100000
+```
+
+输出：
+- `project_template/data/items.parquet`（`item_id,text`；`item_id` 默认使用 `link`）
+
+---
+
+## 构建召回索引（两条路线二选一）
+
+### 路线 1：TF‑IDF（最快、无网）
+
+```bash
+python -m project_template.pipeline.build_tfidf_index \
+  --items "project_template/data/items.parquet" \
+  --max-rows 100000
+```
+
+输出：
+- `project_template/artifacts/item_index.pkl`（TF‑IDF）
+
+### 路线 2：多语 Embedding（中文输入更强）
+
+```bash
+python -m project_template.pipeline.build_item_embeddings \
+  --items "project_template/data/items.parquet" \
+  --model "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+python -m project_template.pipeline.export_artifacts \
+  --items "project_template/data/items.parquet" \
+  --items-emb "project_template/features/items_emb.parquet"
+```
+
+输出：
+- `project_template/features/items_emb.parquet`
+- `project_template/artifacts/item_index.pkl`（dense embedding）
+
+---
+
+## 生成结构化特征（用于硬过滤 / reranker / 评估一致性）
+
+```bash
+python -m project_template.pipeline.build_recipe_metadata \
+  --items "project_template/data/items.parquet"
+```
+
+输出：
+- `project_template/features/recipe_meta.parquet`（time_min、dairy/nuts/peanut 等 flags、ingredients_count…）
+
+---
+
+## 训练弱监督 reranker（无用户历史也能训）
+
+```bash
+python -m project_template.pipeline.train_reranker \
+  --items "project_template/data/items.parquet" \
+  --index "project_template/artifacts/item_index.pkl" \
+  --meta "project_template/features/recipe_meta.parquet" \
+  --n-seed-items 2000 \
+  --candidate-k 80 \
+  --n-neg 10
+```
+
+输出：
+- `project_template/artifacts/reranker.pkl`
+
+---
+
+## 启动 Demo（推荐 Streamlit）
+
+```bash
+streamlit run project_template/app/streamlit_app.py
+```
+
+在 UI 里你可以：
+- 勾选 **生成一日三餐**
+- 开启 **扩展忌口同义词**（例如 `milk → dairy` 相关词）
+- 如果你训练了 reranker：勾选 **启用 reranker** 并调节权重
+
+---
+
+## 评估（LLM 可选）
+
+### 1) 配置 OpenAI Key（仅当你使用 provider=openai）
+
+在仓库根目录创建 `.env`：
 
 ```bash
 cp env.template .env
-# 然后编辑 .env，设置 OPENAI_API_KEY=...
+# 编辑 .env：OPENAI_API_KEY=...
 ```
 
-### 快速参考
+### 2) 运行评估
 
-#### 📘 0. 快速示例（可选）
-**文件：** `examples/example.py`
+无网（keywords fallback）：
 
-**用途：**
-- 快速了解基本用法
-- 代码示例参考
-- 不需要深入学习，可作为快速参考
+```bash
+python -m project_template.pipeline.evaluate_llm \
+  --provider keywords \
+  --apply-filters \
+  --query "low calorie high protein dinner under 30 minutes" \
+  --avoid "peanut,milk"
+```
+
+OpenAI（LLM 评分）：
+
+```bash
+python -m project_template.pipeline.evaluate_llm \
+  --provider openai \
+  --openai-model gpt-4o-mini \
+  --apply-filters \
+  --query "low calorie high protein dinner under 30 minutes" \
+  --avoid "peanut,milk"
+```
+
+输出：
+- `project_template/artifacts/llm_eval_report.json`
+
+说明：
+- `--apply-filters` 会先按线上同样的“硬过滤”过滤候选（包含 `avoid` 的同义词扩展），再做评估，确保口径一致。
 
 ---
 
-## 📚 详细学习路径
+## 常见问题（FAQ）
 
-### 初学者路径（推荐）
+### 1) 为什么我中文输入效果差？
+- 你用的是 TF‑IDF 或英文 embedding 模型时，中文 query 召回会很弱。请切到“多语 Embedding”路线，并使用：  
+  `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 
-1. **第一步**：阅读 `content-based-filtering.ipynb`
-   - 理解推荐系统的基本概念
-   - 学习最简单的推荐方法
+### 2) 为什么过滤后还有 contains_avoid_term？
+- 如果你没开“扩展忌口同义词”，`milk` 不会自动扩展到 `cheese/cream/butter/...`。  
+- 现在 UI 与 `evaluate_llm.py` 都支持同义词扩展，建议开启。
 
-2. **第二步**：阅读 `user-user-cf.ipynb`
-   - 理解协同过滤思想
-   - 学习相似度计算
-
-3. **第三步**：阅读 `item-item-cf.ipynb`
-   - 学习最实用的协同过滤方法
-   - 理解为什么物品-物品更常用
-
-4. **第四步**：阅读 `recommender-system.ipynb`
-   - 深入学习矩阵分解
-   - 理解现代推荐系统算法
-
-5. **第五步**：阅读 `recommender-evaluation.ipynb`
-   - 学习如何评估推荐系统
-   - 掌握实际项目技能
-
-### 进阶路径
-
-如果你已经熟悉基础概念，可以：
-- 直接学习 `recommender-system.ipynb` 和 `recommender-evaluation.ipynb`
-- 重点关注模型调优和评估方法
-
-### 实践路径
-
-如果你想快速上手：
-1. 先看 `example.py` 了解基本用法
-2. 选择一种方法深入学习（推荐 `item-item-cf.ipynb`）
-3. 学习 `recommender-evaluation.ipynb` 进行评估
+### 3) 数据太大跑不动怎么办？
+- 先用 `--max-rows 100000` 跑通全链路，再逐步放大。
 
 ---
 
-## 🎯 学习建议
+## 许可证
 
-1. **循序渐进**：按照推荐顺序学习，不要跳跃
-2. **动手实践**：每个notebook都要运行代码，理解结果
-3. **对比学习**：学完所有方法后，对比它们的优缺点
-4. **项目实践**：尝试在自己的数据集上应用这些方法
-5. **深入理解**：不仅要会用，还要理解原理
-
----
-
-## 📁 文件说明
-
-### Examples目录结构
-
-```
-examples/
-├── [0] example.py                    # 快速示例（可选）
-├── [1] content-based-filtering.ipynb # 基于内容推荐
-├── [2] user-user-cf.ipynb            # 用户-用户协同过滤
-├── [3] item-item-cf.ipynb            # 物品-物品协同过滤
-├── [4] recommender-system.ipynb      # 矩阵分解（完整示例）
-└── [5] recommender-evaluation.ipynb  # 评估与实际实现
-```
-
-**注意：** 文件名前的 `[数字]` 表示推荐的学习顺序
-
----
-
-## 📊 方法对比
-
-| 方法 | 优点 | 缺点 | 适用场景 |
-|------|------|------|----------|
-| **基于内容** | 可解释性强、冷启动友好 | 特征工程复杂、推荐多样性有限 | 有丰富物品特征的场景 |
-| **用户-用户CF** | 发现潜在兴趣、推荐多样 | 计算复杂度高、可扩展性差 | 用户数量较少的场景 |
-| **物品-物品CF** | 可扩展性好、解释性强 | 冷启动问题 | **最常用**，大多数推荐系统 |
-| **矩阵分解** | 处理稀疏数据、可扩展 | 可解释性较弱 | 大规模数据、需要在线更新 |
-
----
-
-## 🔧 API 参考
-
-### ContentBasedRecommender
-
-```python
-ContentBasedRecommender(min_rating=0, max_rating=5, verbose=0)
-```
-
-**方法：**
-- `fit(X, y, item_features=None)`: 训练模型
-- `predict(X, bound_ratings=True)`: 预测评分
-- `recommend(user, amount=10, items_known=None)`: 生成推荐
-
-### UserUserCF
-
-```python
-UserUserCF(min_rating=0, max_rating=5, n_neighbors=50, similarity_metric='cosine', verbose=0)
-```
-
-**方法：**
-- `fit(X, y)`: 训练模型
-- `predict(X, bound_ratings=True)`: 预测评分
-- `recommend(user, amount=10, items_known=None)`: 生成推荐
-
-### ItemItemCF
-
-```python
-ItemItemCF(min_rating=0, max_rating=5, n_neighbors=50, similarity_metric='cosine', verbose=0)
-```
-
-**方法：**
-- `fit(X, y)`: 训练模型
-- `predict(X, bound_ratings=True)`: 预测评分
-- `recommend(user, amount=10, items_known=None)`: 生成推荐
-
-### KernelMF
-
-```python
-KernelMF(n_factors=100, n_epochs=100, kernel='linear', lr=0.01, reg=1, verbose=1)
-```
-
-**方法：**
-- `fit(X, y)`: 训练模型
-- `predict(X, bound_ratings=True)`: 预测评分
-- `update_users(X, y, lr=0.01, n_epochs=20)`: 在线更新新用户
-- `recommend(user, amount=10, items_known=None)`: 生成推荐
-
----
-
-## 🎓 完整学习路径总结
-
-```
-开始学习
-    ↓
-[1] 基于内容的推荐
-    ├─ 理解推荐系统基础概念
-    ├─ 学习特征工程
-    └─ 掌握最简单的推荐方法
-    ↓
-[2] 用户-用户协同过滤
-    ├─ 理解协同过滤思想
-    ├─ 学习相似度计算
-    └─ 掌握基于用户的推荐
-    ↓
-[3] 物品-物品协同过滤
-    ├─ 学习最实用的协同过滤方法
-    ├─ 理解可扩展性
-    └─ 掌握工程实践
-    ↓
-[4] 矩阵分解
-    ├─ 深入学习现代推荐算法
-    ├─ 学习潜在因子模型
-    ├─ 掌握不同核函数
-    └─ 学习在线更新机制
-    ↓
-[5] 评估与实际实现
-    ├─ 掌握评估指标
-    ├─ 理解相似度度量
-    ├─ 学习离线/在线评估
-    ├─ 解决冷启动问题
-    └─ 构建评估管道
-    ↓
-完成学习，可以开始实际项目！
-```
-
----
-
-## 📖 参考资料
-
-- Steffen Rendle, Lars Schmidt-Thieme. [Online-updating regularized kernel matrix factorization models for large-scale recommender systems](https://dl.acm.org/doi/10.1145/1454008.1454047)
-- [MovieLens Dataset](https://grouplens.org/datasets/movielens/)
-
----
-
-## 📝 许可证
-
-本项目采用 MIT 许可证。
-
----
-
-## 🙏 致谢
-
-感谢 MovieLens 提供的数据集。
+本项目采用 MIT 许可证，详见 `LICENSE`。

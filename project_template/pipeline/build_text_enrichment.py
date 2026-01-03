@@ -88,7 +88,7 @@ def _openai_enrich(items: pd.DataFrame, model: str, top_k: int) -> tuple[list[li
     for _, row in items.iterrows():
         text = str(row["text"] or "").strip()
         prompt = (
-            "你是推荐系统的特征工程助手。请对给定的游戏描述做两件事：\n"
+            "你是推荐系统的特征工程助手。请对给定的食谱/菜谱文本做两件事：\n"
             f"1) 输出不超过 {top_k} 个标签（tags），使用英文短词/短语；\n"
             "2) 输出一段不超过 60 字的中文简介（summary）。\n"
             "请用严格 JSON 格式返回：{\"tags\": [...], \"summary\": \"...\"}\n\n"

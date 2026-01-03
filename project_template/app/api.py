@@ -15,7 +15,7 @@ from .retrieval import TfidfItemIndex, load_item_index, encode_query_for_index, 
 
 class RecommendRequest(BaseModel):
     user_id: Any | None = Field(default=None, description="可选：若提供则会使用协同过滤/MF 的个性化推荐")
-    query: str = Field(..., description="自由文本查询，例如：'轻松搞笑、适合周末看的电影'")
+    query: str = Field(..., description="自由文本查询，例如：'低卡高蛋白晚餐，30分钟内，不要花生和牛奶'")
     k: int = Field(default=10, ge=1, le=50)
     candidate_k: int = Field(default=50, ge=1, le=500, description="embedding 召回候选数")
     alpha: float = Field(default=0.7, ge=0.0, le=1.0, description="混合权重：alpha*模型分数 + (1-alpha)*embedding相似度")
