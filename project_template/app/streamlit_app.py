@@ -351,37 +351,37 @@ def main() -> None:
 
             st.subheader("推荐结果")
             for mt in meal_list:
-            query = _build_query_from_needs(
-                goal=goal,
+                query = _build_query_from_needs(
+                    goal=goal,
                     meal_type=mt,
-                cuisines=cuisines,
-                dietary=dietary,
-                must_include=must_include,
-                avoid=avoid_terms,
-                max_time_min=max_time_min,
-                extra=extra,
-            )
+                    cuisines=cuisines,
+                    dietary=dietary,
+                    must_include=must_include,
+                    avoid=avoid_terms,
+                    max_time_min=max_time_min,
+                    extra=extra,
+                )
 
                 with st.expander(f"查看生成的查询描述（{mt}）", expanded=False):
-                st.code(query)
+                    st.code(query)
 
-            try:
-                qvec = encode_query_for_index(index, query, model_name=embedding_model)
-            except Exception as e:
-                st.error(str(e))
-                st.stop()
-            candidates = search_topk_pos(index, qvec, k=candidate_k)
+                try:
+                    qvec = encode_query_for_index(index, query, model_name=embedding_model)
+                except Exception as e:
+                    st.error(str(e))
+                    st.stop()
+                candidates = search_topk_pos(index, qvec, k=candidate_k)
 
-            if strict_exclude and avoid_terms:
-                candidates = [
-                    (pos, item_id, sim)
-                    for (pos, item_id, sim) in candidates
+                if strict_exclude and avoid_terms:
+                    candidates = [
+                        (pos, item_id, sim)
+                        for (pos, item_id, sim) in candidates
                         if not contains_any(index.texts[pos], avoid_terms)
-                ]
-            if strict_must_include and must_include:
-                candidates = [
-                    (pos, item_id, sim)
-                    for (pos, item_id, sim) in candidates
+                    ]
+                if strict_must_include and must_include:
+                    candidates = [
+                        (pos, item_id, sim)
+                        for (pos, item_id, sim) in candidates
                         if contains_any(index.texts[pos], must_include)
                     ]
 
@@ -443,27 +443,29 @@ def main() -> None:
                         if ls is None or ls >= 1.0:
                             filtered.append((pos, item_id, sim))
                     candidates = filtered
-            if len(candidates) == 0:
+
+                if len(candidates) == 0:
                     st.warning(f"{mt}: 筛选后没有候选结果。可以关掉严格筛选，或增大候选数 candidate_k。")
                     continue
 
-            cand_pos = [pos for (pos, _, _) in candidates]
-            cand_item_ids = [item_id for (_, item_id, _) in candidates]
-            cand_sims = np.asarray([sim for (_, _, sim) in candidates], dtype=np.float32)
+                cand_pos = [pos for (pos, _, _) in candidates]
+                cand_item_ids = [item_id for (_, item_id, _) in candidates]
+                cand_sims = np.asarray([sim for (_, _, sim) in candidates], dtype=np.float32)
 
                 # 本项目默认无 user_id：ms 通常为 0，score 主要由相似度决定
-            ms = _model_score(model, user_id if user_id != "" else None, cand_item_ids)
+                ms = _model_score(model, user_id if user_id != "" else None, cand_item_ids)
                 base = alpha * _minmax(ms) + (1.0 - alpha) * _minmax(cand_sims)
 
                 # 可选：reranker（弱监督训练）
                 if use_reranker and reranker is not None:
                     # 从 query/问卷提取“意图”，并计算 time_ok/protein_ok 等可控特征
                     q_time = _parse_time_constraint_from_query(query)
-                    if q_time is None:
-                        q_time = int(max_time_min) if max_time_min else None
+                    if q_time is None and max_time_min:
+                        q_time = int(max_time_min)
                     intent = parse_query_intent(query)
                     q_low = (query or "").lower()
                     q_terms = [t for t in re.split(r"\W+", q_low) if t][:20]
+
                     feats = []
                     for (pos, item_id, sim) in candidates:
                         text = index.texts[int(pos)]
@@ -475,34 +477,64 @@ def main() -> None:
                         kw_overlap = float(hit / max(1, len(q_terms))) if q_terms else 0.0
 
                         ing = extract_ingredient_phrases(text)
-                        has_dairy = float(row["has_dairy"]) if row is not None and "has_dairy" in row else (1.0 if ("cheese" in hay or "milk" in hay or "cream" in hay) else 0.0)
-                        has_peanut = float(row["has_peanut"]) if row is not None and "has_peanut" in row else (1.0 if "peanut" in hay else 0.0)
-                        has_tree_nuts = float(row["has_tree_nuts"]) if row is not None and "has_tree_nuts" in row else (1.0 if "nuts" in hay else 0.0)
-                        has_egg = float(row["has_egg"]) if row is not None and "has_egg" in row else (1.0 if "egg" in hay else 0.0)
+                        has_dairy = (
+                            float(row["has_dairy"])
+                            if row is not None and "has_dairy" in row
+                            else (1.0 if ("cheese" in hay or "milk" in hay or "cream" in hay) else 0.0)
+                        )
+                        has_peanut = (
+                            float(row["has_peanut"])
+                            if row is not None and "has_peanut" in row
+                            else (1.0 if "peanut" in hay else 0.0)
+                        )
+                        has_tree_nuts = (
+                            float(row["has_tree_nuts"])
+                            if row is not None and "has_tree_nuts" in row
+                            else (1.0 if "nuts" in hay else 0.0)
+                        )
+                        has_egg = (
+                            float(row["has_egg"])
+                            if row is not None and "has_egg" in row
+                            else (1.0 if "egg" in hay else 0.0)
+                        )
                         has_wheat = float(row["has_wheat"]) if row is not None and "has_wheat" in row else 0.0
                         has_soy = float(row["has_soy"]) if row is not None and "has_soy" in row else 0.0
                         has_fish = float(row["has_fish"]) if row is not None and "has_fish" in row else 0.0
-                        has_shellfish = float(row["has_shellfish"]) if row is not None and "has_shellfish" in row else 0.0
-                        time_min = float(row["time_min"]) if row is not None and "time_min" in row and pd.notna(row["time_min"]) else -1.0
+                        has_shellfish = (
+                            float(row["has_shellfish"]) if row is not None and "has_shellfish" in row else 0.0
+                        )
+
+                        time_min = (
+                            float(row["time_min"])
+                            if row is not None and "time_min" in row and pd.notna(row["time_min"])
+                            else -1.0
+                        )
                         time_ok = 1.0
                         if q_time is not None and time_min >= 0:
                             time_ok = 1.0 if float(time_min) <= float(q_time) else 0.0
-                        # protein_score/protein_ok：meta 优先，否则回退 text 解析
-                        protein_score = float(row["protein_score"]) if row is not None and "protein_score" in row and pd.notna(row["protein_score"]) else float(compute_protein_score(ing))
+
+                        protein_score = (
+                            float(row["protein_score"])
+                            if row is not None and "protein_score" in row and pd.notna(row["protein_score"])
+                            else float(compute_protein_score(ing))
+                        )
                         protein_ok = 1.0
                         if intent.get("want_high_protein", False):
                             protein_ok = 1.0 if float(protein_score) >= 2.0 else 0.0
-                        # low_calorie_score/ok：meta 优先，否则回退 text 解析
+
                         if row is not None and "low_calorie_score" in row and pd.notna(row["low_calorie_score"]):
                             low_calorie_score = float(row["low_calorie_score"])
                         else:
-                            low_calorie_score, _hi_pen = compute_low_calorie_score(
-                                ingredients=ing, directions=(text or "")
-                            )
+                            low_calorie_score, _hi_pen = compute_low_calorie_score(ingredients=ing, directions=(text or ""))
                         low_calorie_ok = 1.0
                         if intent.get("want_low_calorie", False):
                             low_calorie_ok = 1.0 if float(low_calorie_score) >= 1.0 else 0.0
-                        ingredients_count = float(row["ingredients_count"]) if row is not None and "ingredients_count" in row else float(len(ing))
+
+                        ingredients_count = (
+                            float(row["ingredients_count"])
+                            if row is not None and "ingredients_count" in row
+                            else float(len(ing))
+                        )
 
                         feats.append(
                             [
@@ -525,6 +557,7 @@ def main() -> None:
                                 ingredients_count,
                             ]
                         )
+
                     feats_np = np.asarray(feats, dtype=np.float32)
                     try:
                         rr = np.asarray(reranker["model"].predict_proba(feats_np)[:, 1], dtype=np.float32)
@@ -543,18 +576,19 @@ def main() -> None:
                     already_selected_sets=chosen_sets,
                 )
 
-            rows = []
-            for rank, i in enumerate(top_idx, start=1):
-                pos = cand_pos[int(i)]
-                item_id = cand_item_ids[int(i)]
-                text = index.texts[pos]
-                preview = (text or "").replace("\n", " ").strip()
-                if len(preview) > 140:
-                    preview = preview[:140] + "…"
-                    # 展示时间/蛋白提示（若 meta 存在）
+                rows = []
+                for rank, i in enumerate(top_idx, start=1):
+                    pos = cand_pos[int(i)]
+                    item_id = cand_item_ids[int(i)]
+                    text = index.texts[pos]
+                    preview = (text or "").replace("\n", " ").strip()
+                    if len(preview) > 140:
+                        preview = preview[:140] + "…"
+
                     item_id_s = str(item_id)
                     tmin_disp = None
                     ps_disp = None
+                    low_disp = None
                     if meta is not None and item_id_s in meta.index:
                         row_meta = meta.loc[item_id_s]
                         if "time_min" in row_meta and pd.notna(row_meta["time_min"]):
@@ -567,30 +601,28 @@ def main() -> None:
                                 ps_disp = float(row_meta["protein_score"])
                             except Exception:
                                 ps_disp = None
-                    low_disp = None
-                    if meta is not None and item_id_s in meta.index:
-                        row_meta = meta.loc[item_id_s]
                         if "low_calorie_score" in row_meta and pd.notna(row_meta["low_calorie_score"]):
                             try:
                                 low_disp = float(row_meta["low_calorie_score"])
                             except Exception:
                                 low_disp = None
-                rows.append(
-                    {
+
+                    rows.append(
+                        {
                             "meal": mt,
-                        "rank": rank,
-                        "item_id": item_id,
+                            "rank": rank,
+                            "item_id": item_id,
                             "score": float(base[int(i)]),
-                        "sim": float(cand_sims[int(i)]),
+                            "sim": float(cand_sims[int(i)]),
                             "time_min": tmin_disp,
                             "protein_score": ps_disp,
                             "low_calorie_score": low_disp,
-                        "preview": preview,
-                    }
-                )
+                            "preview": preview,
+                        }
+                    )
 
                 st.markdown(f"**{mt}**")
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+                st.dataframe(pd.DataFrame(rows), width="stretch")
 
             st.subheader("解释（教学用）")
             st.write(
@@ -642,7 +674,7 @@ def main() -> None:
                 )
 
             st.subheader("推荐结果")
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch")
 
             st.subheader("解释（教学用）")
             if model is None or user_id == "":
