@@ -624,10 +624,7 @@ def main() -> None:
                 st.markdown(f"**{mt}**")
                 st.dataframe(pd.DataFrame(rows), width="stretch")
 
-            st.subheader("解释（教学用）")
-            st.write(
-                "当前链路是：**问卷生成 query → 检索召回候选 → 关键词过滤 → 多样性重排（食材 overlap 惩罚）**。"
-            )
+            # （已移除“解释（教学用）”展示）
 
     with tabs[1]:
         st.subheader("自由文本")
@@ -676,11 +673,7 @@ def main() -> None:
             st.subheader("推荐结果")
             st.dataframe(pd.DataFrame(rows), width="stretch")
 
-            st.subheader("解释（教学用）")
-            if model is None or user_id == "":
-                st.write("当前是 **纯相似度召回**（未加载模型或未提供 user_id）。")
-            else:
-                st.write(f"当前是 **混合排序**：{alpha:.2f}*模型预测 + {1-alpha:.2f}*文本相似度（均做 min-max 归一化）。")
+            # （已移除“解释（教学用）”展示）
 
 
 if __name__ == "__main__":
